@@ -14,6 +14,7 @@ except IndexError:
 
 #######|  run the sim         |#######################################################
 import carla
+import math
 import random
 import time
 
@@ -23,7 +24,7 @@ def moveVehicle(endTime, vehicle):
     if(int(time.time()) > endTime):
         return False
 
-    vehicle.enable_constant_velocity(carla.Vector3D(17, 0, 0))
+    vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=math.cos(endTime - time.time()) ))
     return True
 
 
@@ -36,14 +37,17 @@ def main():
         client.set_timeout(10.0)
 
         #retrieve the world and blueprint list from the server
-        world = client.get_world()
+        world = client.get_world() 
+        print(world.get_map().name)
+        if(world.get_map().name != "Carla/Maps/Town02_Opt"): #Town02_Opt
+            world = client.load_world('Town02_Opt', map_layers=carla.MapLayer.NONE) 
         bpLibrary = world.get_blueprint_library()
 
         #picks a random vehicle from the library
         vehicleBP = random.choice(bpLibrary.filter("vehicle"))
 
         #picks a random spawn point from the given spawn points
-        vehicleTransform = random.choice(world.get_map().get_spawn_points())
+        vehicleTransform = world.get_map().get_spawn_points()[80]
 
         #spawns a vehicleBP actor at vehicleTransform
         vehicle = world.spawn_actor(vehicleBP, vehicleTransform)
@@ -54,9 +58,21 @@ def main():
         startTime = int(time.time())
         endTime = startTime + 5
 
+        print("begin steering tests:\n > steering back and forth")
+        vehicle.apply_control(carla.VehicleControl(throttle=1.0, steer=1.0))
         #game loop
         while(moveVehicle(endTime, vehicle)):
             pass
+
+        print(" > turning left, full throttle")
+        vehicle.apply_control(carla.VehicleControl(throttle=1.0, steer=-1.0))
+        time.sleep(5)
+        print(" > straight, full brake")
+        vehicle.apply_control(carla.VehicleControl(throttle=0.0, brake=1.0, steer=0.0))
+        time.sleep(5)
+        print(" > turning right, full throttle")
+        vehicle.apply_control(carla.VehicleControl(throttle=1.0, steer=1.0))
+        time.sleep(5)
 
     finally:
         print("destroying all actors")
