@@ -1,8 +1,11 @@
-#######|  find carla module  |#######################################################
+#######|  setup  |#############################################################################
+###############################################################################################
+
 import glob
 import os
 import sys
 
+#find carla module
 try:
     sys.path.append(glob.glob('../carla/dist/carla-*%d.%d-%s.egg' % (
         sys.version_info.major,
@@ -12,11 +15,86 @@ except IndexError:
     pass
 
 
-#######|  run the sim         |#######################################################
 import carla
+from carla import ColorConverter as cc
 import math
+import numpy as np
 import random
+import pygame
 import time
+import weakref
+
+#######|  manage the view window  |############################################################
+###############################################################################################
+
+#the camera whose output will be displayed in a secondary window, giving a third-person view of the agent
+#this class is an edited-down verson of CARLA's manual_control.py (find at carla/PythonAPI/examples)
+class TPCamera(object):
+    #initializes the camera sensor used for a third-person view
+    def __init__(self, vehicle):
+        self.relTransform = None
+        self.sensor = None
+        self.surface = None
+        self.vehicle = vehicle
+        world = self.vehicle.get_world()
+
+        if not self.vehicle.type_id.startswith("walker.pedestrian"):
+            self.relTransform = (carla.Transform(
+                carla.Location(x=-3*(0.5+self.vehicle.bounding_box.extent.x), y=0, z=2.25*(0.5+self.vehicle.bounding_box.extent.z))))
+        else:
+            self.relTransform = (carla.Transform(carla.Location(x=-1.5, z=1.7)))
+
+        sensorBP = world.get_blueprint_library().find("sensor.camera.rgb")
+        sensorBP.set_attribute("image_size_x", "1280")
+        sensorBP.set_attribute("image_size_y", "720")
+        sensorBP.set_attribute("fov", "110")
+
+        self.sensor = world.spawn_actor(
+            sensorBP, self.relTransform, attach_to=self.vehicle, attachment_type = carla.AttachmentType.Rigid)
+
+        #each frame, the sensor calls parseImage on image, which is the sensor's output
+        weakSelf = weakref.ref(self)
+        self.sensor.listen(lambda image: TPCamera.parseImage(weakSelf, image))
+
+    #parse the image coming from sensor.listen into self.surface
+    @staticmethod
+    def parseImage(weak_self, image):
+        self = weak_self()
+        if not self:
+            return
+
+        image.convert(cc.Raw)
+        array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
+        array = np.reshape(array, (image.height, image.width, 4))
+        array = array[:, :, :3]
+        array = array[:, :, ::-1]
+        self.surface = pygame.surfarray.make_surface(array.swapaxes(0, 1))
+
+    #takes the surface (computed in parseImage) and blits it onto the pygame display
+    def render(self, display):
+        if self.surface is not None:
+            display.blit(self.surface, (0, 0))
+
+    #returns a reference to self.sensor
+    def getSensor():
+        return self.sensor
+
+
+#initializes and returns the display of the testpilot
+def initWindow():
+    #initialize pygame
+    pygame.init()
+
+    #create the display
+    display = pygame.display.set_mode(
+            (1280, 720),
+            pygame.HWSURFACE | pygame.DOUBLEBUF)
+    display.fill((0,0,0))
+    pygame.display.set_caption("Agent View")
+    pygame.display.flip()
+
+    return display
+
 
 #enables a constant velocity on vehicle
 #returns False to break the game loop
@@ -24,9 +102,12 @@ def moveVehicle(endTime, vehicle):
     if(int(time.time()) > endTime):
         return False
 
-    vehicle.apply_control(carla.VehicleControl(throttle=0.0, steer=math.cos(endTime - time.time()) ))
+    vehicle.apply_control(carla.VehicleControl(throttle=1.0, steer=math.cos(endTime - time.time()) ))
     return True
 
+
+#######|  run the sim  |############################################################################
+####################################################################################################
 
 def main():
     actorList = []
@@ -38,9 +119,9 @@ def main():
 
         #retrieve the world and blueprint list from the server
         world = client.get_world() 
-        print(world.get_map().name)
         if(world.get_map().name != "Carla/Maps/Town02_Opt"): #Town02_Opt
-            world = client.load_world('Town02_Opt', map_layers=carla.MapLayer.NONE) 
+            world = client.load_world('Town02_Opt', map_layers=carla.MapLayer.NONE)
+            print("loading basic map:", world.get_map().name)
         bpLibrary = world.get_blueprint_library()
 
         #picks a random vehicle from the library
@@ -56,31 +137,43 @@ def main():
 
         #determine time to kill this script
         startTime = int(time.time())
-        endTime = startTime + 5
+        endTime = startTime + 15
 
-        print("begin steering tests:\n > steering back and forth")
-        vehicle.apply_control(carla.VehicleControl(throttle=1.0, steer=1.0))
+        display = initWindow()
+        tpCam = TPCamera(vehicle)
+        actorList.append(tpCam.sensor)
+
         #game loop
-        while(moveVehicle(endTime, vehicle)):
-            pass
+        world.wait_for_tick()
+        clock = pygame.time.Clock()
+        while(True):
+            clock.tick_busy_loop(60)
+            if(not moveVehicle(endTime, vehicle)):
+                break
+            tpCam.render(display)            
+            pygame.display.flip()
 
-        print(" > turning left, full throttle")
-        vehicle.apply_control(carla.VehicleControl(throttle=1.0, steer=-1.0))
-        time.sleep(5)
-        print(" > straight, full brake")
-        vehicle.apply_control(carla.VehicleControl(throttle=0.0, brake=1.0, steer=0.0))
-        time.sleep(5)
-        print(" > turning right, full throttle")
-        vehicle.apply_control(carla.VehicleControl(throttle=1.0, steer=1.0))
-        time.sleep(5)
+        #print("begin steering tests:\n > steering back and forth")
+        #vehicle.apply_control(carla.VehicleControl(throttle=1.0, steer=1.0))
+        #print(" > turning left, full throttle")
+        #vehicle.apply_control(carla.VehicleControl(throttle=1.0, steer=-1.0))
+        #time.sleep(5)
+        #print(" > straight, full brake")
+        #vehicle.apply_control(carla.VehicleControl(throttle=0.0, brake=1.0, steer=0.0))
+        #time.sleep(5)
+        #print(" > turning right, full throttle")
+        #vehicle.apply_control(carla.VehicleControl(throttle=1.0, steer=1.0))
+        #time.sleep(5)
 
     finally:
         print("destroying all actors")
         for actor in actorList: 
+            print("destroying one")
             actor.destroy() 
-        print("closing testpilot")
+
+        print("quitting pygame")
+        pygame.quit()
 
 
 if __name__ == '__main__':
-
     main()
