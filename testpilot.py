@@ -23,6 +23,10 @@ import random
 import pygame
 import time
 import weakref
+import cv2
+
+IM_WIDTH = 640
+IM_HEIGHT = 480
 
 #######|  manage the view window  |############################################################
 ###############################################################################################
@@ -60,6 +64,55 @@ class TPCamera(object):
     @staticmethod
     def parseImage(weak_self, image):
         self = weak_self()
+        if not self:
+            return
+
+        image.convert(cc.Raw)
+        array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
+        array = np.reshape(array, (image.height, image.width, 4))
+        array = array[:, :, :3]
+        array = array[:, :, ::-1]
+        self.surface = pygame.surfarray.make_surface(array.swapaxes(0, 1))
+
+    #takes the surface (computed in parseImage) and blits it onto the pygame display
+    def render(self, display):
+        if self.surface is not None:
+            display.blit(self.surface, (0, 0))
+
+    #returns a reference to self.sensor
+    def getSensor():
+        return self.sensor
+
+class frontCamera:
+    #initializes the camera sensor used for a first-person view
+    def __init__(self, vehicle):
+        self.relTransform = None
+        self.sensor = None
+        self.surface = None
+        self.vehicle = vehicle
+        world = self.vehicle.get_world()
+
+        if not self.vehicle.type_id.startswith("walker.pedestrian"):
+            self.relTransform = (carla.Transform(
+                carla.Location(x=2.5*(0.5+self.vehicle.bounding_box.extent.x), y=0, z=0.7*(0.5+self.vehicle.bounding_box.extent.z))))
+        else:
+            self.relTransform = (carla.Transform(carla.Location(x=2.5, z=0.7)))
+
+        sensorBP = world.get_blueprint_library().find("sensor.camera.rgb")
+        sensorBP.set_attribute('image_size_x', f'{IM_WIDTH}')
+        sensorBP.set_attribute('image_size_y', f'{IM_HEIGHT}')
+        sensorBP.set_attribute("fov", "110")
+
+        self.sensor = world.spawn_actor(
+            sensorBP, self.relTransform, attach_to=self.vehicle, attachment_type = carla.AttachmentType.Rigid)
+
+        #each frame, the sensor calls parseImage on image, which is the sensor's output
+        weakSelf = weakref.ref(self)
+        self.sensor.listen(lambda image: TPCamera.parseImage(weakSelf, image))
+    #parse the image coming from sensor.listen into self.surface
+    @staticmethod
+    def parseImage(weak_self, image):
+        elf = weak_self()
         if not self:
             return
 
@@ -137,11 +190,14 @@ def main():
 
         #determine time to kill this script
         startTime = int(time.time())
-        endTime = startTime + 15
+        endTime = startTime + 30
 
         display = initWindow()
         tpCam = TPCamera(vehicle)
         actorList.append(tpCam.sensor)
+
+        tp2 = frontCamera(vehicle)
+        actorList.append(tp2.sensor)
 
         #game loop
         world.wait_for_tick()
@@ -150,7 +206,8 @@ def main():
             clock.tick_busy_loop(60)
             if(not moveVehicle(endTime, vehicle)):
                 break
-            tpCam.render(display)            
+            tpCam.render(display)    
+            tp2.render(display)        
             pygame.display.flip()
 
         #print("begin steering tests:\n > steering back and forth")
