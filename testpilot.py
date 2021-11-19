@@ -80,7 +80,7 @@ class TPCamera(object):
             display.blit(self.surface, (0, 0))
 
     #returns a reference to self.sensor
-    def getSensor():
+    def getSensor(self):
         return self.sensor
 
 class frontCamera:
@@ -112,7 +112,7 @@ class frontCamera:
     #parse the image coming from sensor.listen into self.surface
     @staticmethod
     def parseImage(weak_self, image):
-        elf = weak_self()
+        self = weak_self()
         if not self:
             return
 
@@ -129,7 +129,7 @@ class frontCamera:
             display.blit(self.surface, (0, 0))
 
     #returns a reference to self.sensor
-    def getSensor():
+    def getSensor(self):
         return self.sensor
 
 
