@@ -296,7 +296,12 @@ class CarlaEnv(gym.Env):
 
         # Calculate distance traveled
         self.distance_traveled += self.previous_location.distance(transform.location)
+        t1 = self.previous_location
         self.previous_location = transform.location
+        if transform.location.z <= -10 and t1.z <= -10:
+            self.hud.notification("Crossed boundary for deletion")
+            self.terminal = true
+
 
         # Accumulate speed
         self.speed_accum += self.vehicle.get_speed()
