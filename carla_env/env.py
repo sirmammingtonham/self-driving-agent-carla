@@ -13,9 +13,6 @@ from .world import World
 from .vehicle import Vehicle
 from .camera import Camera
 
-offroad_checker = False
-offroad_total = 0
-
 camera_transforms = {
     "spectator": carla.Transform(carla.Location(x=-5.5, z=2.8), carla.Rotation(pitch=-15)),
     "dashboard": carla.Transform(carla.Location(x=1.6, z=1.7))
@@ -315,18 +312,11 @@ class CarlaEnv(gym.Env):
 
         # Calculate distance traveled
         self.distance_traveled += self.previous_location.distance(transform.location)
-        t1 = self.previous_location
         self.previous_location = transform.location
-        if transform.location.z != 0 and !offroad_checker:
-            offroad_checker = True
-        elif transform.location.z != 0 and offroad_total < 100:
-            offroad_total += 1
-        elif offroad_total >= 100:
+
+        if transform.location.z < 0:
+            self.reward = -100
             self.terminal_state = True
-        elif transform.location.z == 0
-            offroad_checker = False
-            offroad_total = 0
-        print "offroad_total ==  ".join(offroad_total)
 
         # Accumulate speed
         self.speed_accum += self.vehicle.get_speed()
