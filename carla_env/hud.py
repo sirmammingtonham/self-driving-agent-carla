@@ -43,7 +43,7 @@ class HUD(object):
 
             # General simulation info
             self.info_text = [
-                "Server:  % 16d FPS" % int(self.server_fps),
+                "Server:  % 16d FPS" % int(self.server_fps if self.server_fps < 1000 else 1000),
                 "Client:  % 16d FPS" % clock.get_fps(),
                 "",
                 "Map:     % 20s" % world.map.name,

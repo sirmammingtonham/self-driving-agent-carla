@@ -35,7 +35,7 @@ class CarlaEnv(gym.Env):
     }
 
     def __init__(self, host="127.0.0.1", port=2000,
-                 viewer_res=(1280, 720), obs_res=(1280, 720),
+                 viewer_res=(1280, 720), obs_res=(1280, 720), render=True,
                  synchronous=False, fps=30, action_smoothing=0.9,
                  carla_path=None,):
         """
@@ -85,21 +85,21 @@ class CarlaEnv(gym.Env):
             time.sleep(2)
 
         # Initialize pygame for visualization
-        pygame.init()
-        pygame.font.init()
         width, height = viewer_res
-        if obs_res is None:
-            out_width, out_height = width, height
+        out_width, out_height = obs_res
+        if render:
+            pygame.init()
+            pygame.font.init()
+            self.display = pygame.display.set_mode((width, height), pygame.HWSURFACE | pygame.DOUBLEBUF)
+            self.clock = pygame.time.Clock()
         else:
-            out_width, out_height = obs_res
-        self.display = pygame.display.set_mode((width, height), pygame.HWSURFACE | pygame.DOUBLEBUF)
-        self.clock = pygame.time.Clock()
+            self.clock = None
         self.synchronous = synchronous
 
         # Setup gym environment
         self.seed()
-        self.action_space = gym.spaces.Box(np.array([-1, 0]), np.array([1, 1]), dtype=np.float32) # steer, throttle
-        self.observation_space = gym.spaces.Box(low=0.0, high=1.0, shape=(*obs_res, 3), dtype=np.float32)
+        self.action_space = gym.spaces.Box(low=-1, high=1, shape=(2,), dtype=np.float32) # steer, throttle
+        self.observation_space = gym.spaces.Box(low=0, high=255, shape=(out_height, out_width, 3), dtype=np.uint8)
         self.metadata["video.frames_per_second"] = self.fps = self.average_fps = fps
         self.spawn_point = 1
         self.action_smoothing = action_smoothing
@@ -112,6 +112,9 @@ class CarlaEnv(gym.Env):
 
             # Create world wrapper
             self.world = World(self.client)
+            for actor in self.world.get_actors():
+                if actor.type_id == 'vehicle.tesla.cybertruck':
+                    actor.destroy()
 
             if self.synchronous:
                 settings = self.world.get_settings()
@@ -131,9 +134,12 @@ class CarlaEnv(gym.Env):
                                    on_invasion_fn=lambda e: self._on_invasion(e))
 
             # Create hud
-            self.hud = HUD(width, height)
-            self.hud.set_vehicle(self.vehicle)
-            self.world.on_tick(self.hud.on_world_tick)
+            if render:
+                self.hud = HUD(width, height)
+                self.hud.set_vehicle(self.vehicle)
+                self.world.on_tick(self.hud.on_world_tick)
+            else:
+                self.hud = None
 
             # Create cameras
             self.dashcam = Camera(self.world, out_width, out_height,
@@ -213,6 +219,8 @@ class CarlaEnv(gym.Env):
         self.closed = True
 
     def render(self, mode="human"):
+        if self.hud is None or self.clock is None:
+            return
         # Add metrics to HUD
         self.extra_info.extend([
             f"Reward: {self.last_reward:.2f}",
@@ -251,7 +259,7 @@ class CarlaEnv(gym.Env):
                             "Check for info[\"closed\"] == True in the learning loop.")
 
         # Asynchronous update logic
-        if not self.synchronous:
+        if not self.synchronous and self.clock is not None:
             if self.fps <= 0:
                 # Go as fast as possible
                 self.clock.tick()
@@ -265,19 +273,27 @@ class CarlaEnv(gym.Env):
 
         # Take action
         if action is not None:
-            steer, throttle = [float(a) for a in action]
-            #steer, throttle, brake = [float(a) for a in action]
+            steer, throttle = action # [float(a) for a in action]
             self.vehicle.control.steer    = self.vehicle.control.steer * self.action_smoothing + steer * (1.0-self.action_smoothing)
-            self.vehicle.control.throttle = self.vehicle.control.throttle * self.action_smoothing + throttle * (1.0-self.action_smoothing)
-            #self.vehicle.control.brake = self.vehicle.control.brake * self.action_smoothing + brake * (1.0-self.action_smoothing)
+            # self.vehicle.control.throttle = self.vehicle.control.throttle * self.action_smoothing + throttle * (1.0-self.action_smoothing)
+
+            if throttle >= 0:
+                self.vehicle.control.brake = 0
+                self.vehicle.control.throttle = self.vehicle.control.throttle * self.action_smoothing + throttle * (1.0-self.action_smoothing)
+            else:
+                brake = -throttle # because throttle is negative, have to make it positive before adding it to brake
+                self.vehicle.control.throttle = 0
+                self.vehicle.control.brake = self.vehicle.control.brake * self.action_smoothing + brake * (1.0-self.action_smoothing)
 
         # Tick game
-        self.hud.tick(self.world, self.clock)
+        if self.hud is not None:
+            self.hud.tick(self.world, self.clock)
         self.world.tick()
 
         # Synchronous update logic
         if self.synchronous:
-            self.clock.tick()
+            if self.clock is not None:
+                self.clock.tick()
             while True:
                 try:
                     self.world.wait_for_tick(seconds=1.0/self.fps + 0.1)
@@ -321,10 +337,11 @@ class CarlaEnv(gym.Env):
         self.step_count += 1
 
         # Check for ESC press
-        pygame.event.pump()
-        if pygame.key.get_pressed()[K_ESCAPE]:
-            self.close()
-            self.terminal_state = True
+        if self.hud is not None:
+            pygame.event.pump()
+            if pygame.key.get_pressed()[K_ESCAPE]:
+                self.close()
+                self.terminal_state = True
 
         # TODO: terminal state if off the map
 
@@ -345,12 +362,14 @@ class CarlaEnv(gym.Env):
         return image
 
     def _on_collision(self, event):
-        self.hud.notification("Collision with {}".format(get_actor_display_name(event.other_actor)))
+        if self.hud is not None:
+            self.hud.notification("Collision with {}".format(get_actor_display_name(event.other_actor)))
 
     def _on_invasion(self, event):
         lane_types = set(x.type for x in event.crossed_lane_markings)
         text = ["%r" % str(x).split()[-1] for x in lane_types]
-        self.hud.notification("Crossed line %s" % " and ".join(text))
+        if self.hud is not None:
+            self.hud.notification("Crossed line %s" % " and ".join(text))
 
     def _set_observation_image(self, image):
         self.observation_buffer = image
