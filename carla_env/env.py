@@ -3,6 +3,7 @@ import time
 
 import carla
 import gym
+import math
 import pygame
 from pygame.locals import *
 import numpy as np
@@ -94,8 +95,15 @@ class CarlaEnv(gym.Env):
         self.synchronous = synchronous
 
         # Setup gym environment
+        self.auto_throttle = True
         self.seed()
-        self.action_space = gym.spaces.Box(low=-1, high=1, shape=(2,), dtype=np.float32) # steer, throttle
+
+        if(self.auto_throttle):
+            self.action_space = gym.spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32) #just steer
+            print("Auto throttle enabled.")
+        else:
+            self.action_space = gym.spaces.Box(low=-1, high=1, shape=(2,), dtype=np.float32) # steer, throttle
+
         self.observation_space = gym.spaces.Box(low=0, high=255, shape=(out_height, out_width, 3), dtype=np.uint8)
         self.metadata["video.frames_per_second"] = self.fps = self.average_fps = fps
         self.spawn_point = 1
@@ -168,7 +176,6 @@ class CarlaEnv(gym.Env):
         self.vehicle.tick()
         self.vehicle.set_transform(self.spawn_transform)
         self.vehicle.set_simulate_physics(False) # Reset the car's physics
-        self.vehicle.set_simulate_physics(True)
 
         # Give 2 seconds to reset
         if self.synchronous:
@@ -182,6 +189,8 @@ class CarlaEnv(gym.Env):
                     pass
         else:
             time.sleep(2.0)
+
+        self.vehicle.set_simulate_physics(True) # Reset the car's physics
 
         self.terminal_state = False # Set to True when we want to end episode
         self.closed = False         # Set to True when ESC is pressed
@@ -270,17 +279,27 @@ class CarlaEnv(gym.Env):
 
         # Take action
         if action is not None:
-            steer, throttle = action # [float(a) for a in action]
-            self.vehicle.control.steer    = self.vehicle.control.steer * self.action_smoothing + steer * (1.0-self.action_smoothing)
-            # self.vehicle.control.throttle = self.vehicle.control.throttle * self.action_smoothing + throttle * (1.0-self.action_smoothing)
+            if(self.auto_throttle):
+                steer = action[0]
 
-            if throttle >= 0:
+                self.vehicle.control.throttle = 0.5
                 self.vehicle.control.brake = 0
-                self.vehicle.control.throttle = self.vehicle.control.throttle * self.action_smoothing + throttle * (1.0-self.action_smoothing)
+                self.vehicle.control.steer = self.vehicle.control.steer * self.action_smoothing + steer * (1.0-self.action_smoothing)
+
             else:
-                brake = -throttle # because throttle is negative, have to make it positive before adding it to brake
-                self.vehicle.control.throttle = 0
-                self.vehicle.control.brake = self.vehicle.control.brake * self.action_smoothing + brake * (1.0-self.action_smoothing)
+                steer, throttle = action # [float(a) for a in action]
+
+                self.vehicle.control.steer = self.vehicle.control.steer * self.action_smoothing + steer * (1.0-self.action_smoothing)
+                self.vehicle.control.throttle = self.vehicle.control.throttle * self.action_smoothing + throttle * (1.0-self.action_smoothing)
+
+                if throttle >= 0:
+                    self.vehicle.control.brake = 0
+                    self.vehicle.control.throttle = self.vehicle.control.throttle * self.action_smoothing + throttle * (1.0-self.action_smoothing)
+                else:
+                    brake = -throttle # because throttle is negative, have to make it positive before adding it to brake
+                    self.vehicle.control.throttle = 0
+                    self.vehicle.control.brake = self.vehicle.control.brake * self.action_smoothing + brake * (1.0-self.action_smoothing)
+
 
         # Tick game
         if self.hud is not None:
@@ -315,14 +334,16 @@ class CarlaEnv(gym.Env):
         self.previous_location = transform.location
 
         if transform.location.z < 0:
-            self.reward = -100
+            self.reward = -1000
             self.terminal_state = True
 
         # Accumulate speed
         self.speed_accum += self.vehicle.get_speed()
         
         # Call external reward fn
-        self.last_reward = 10 if self.vehicle.get_velocity() != 0 else 0
+        self.last_reward = self.reward()
+
+
         self.total_reward += self.last_reward
         self.step_count += 1
 
@@ -334,8 +355,16 @@ class CarlaEnv(gym.Env):
                 self.terminal_state = True
 
         # TODO: terminal state if off the map
-
         return self.observation, self.last_reward, self.terminal_state, { "closed": self.closed }
+
+    def reward(self):
+        #r = 10 if self.vehicle.get_velocity() != 0 else 0
+        #r = min(abs(self.vehicle.get_velocity().x + self.vehicle.get_velocity().y)*10, 10)
+
+        #note reward has -100 applied for a lane invasion (see self._on_invasion())
+   
+        r = 1
+        return r
 
     def _get_observation(self):
         while self.observation_buffer is None:
@@ -360,6 +389,9 @@ class CarlaEnv(gym.Env):
         text = ["%r" % str(x).split()[-1] for x in lane_types]
         if self.hud is not None:
             self.hud.notification("Crossed line %s" % " and ".join(text))
+
+        self.last_reward -= 100
+        self.terminal_state = True
 
     def _set_observation_image(self, image):
         self.observation_buffer = image

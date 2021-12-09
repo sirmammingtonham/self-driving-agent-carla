@@ -23,7 +23,7 @@ import random
 import pygame
 import time
 import weakref
-import cv2
+#import cv2
 
 IM_WIDTH = 640
 IM_HEIGHT = 480
@@ -109,6 +109,7 @@ class frontCamera:
         #each frame, the sensor calls parseImage on image, which is the sensor's output
         weakSelf = weakref.ref(self)
         self.sensor.listen(lambda image: TPCamera.parseImage(weakSelf, image))
+
     #parse the image coming from sensor.listen into self.surface
     @staticmethod
     def parseImage(weak_self, image):
