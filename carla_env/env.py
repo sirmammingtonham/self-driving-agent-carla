@@ -118,7 +118,7 @@ class CarlaEnv(gym.Env):
             # Create world wrapper
             self.world = World(self.client)
             for actor in self.world.get_actors():
-                if actor.type_id == 'vehicle.tesla.cybertruck':
+                if actor.type_id == 'vehicle.tesla.model3':
                     actor.destroy()
 
             if self.synchronous:
@@ -391,9 +391,13 @@ class CarlaEnv(gym.Env):
         text = ["%r" % str(x).split()[-1] for x in lane_types]
         if self.hud is not None:
             self.hud.notification("Crossed line %s" % " and ".join(text))
-
-        self.last_reward -= 1000
-        self.terminal_state = True
+        
+        for lane in lane_types:
+            if(str(lane) == 'Broken'): #center lane 
+                self.last_reward -= 100
+            else:                       #outer lane -- though a NONE lane does appear sometimes in the center, unsure why or how to avoid
+                self.last_reward -= 1000
+                self.terminal_state = True
 
     def _set_observation_image(self, image):
         self.observation_buffer = image

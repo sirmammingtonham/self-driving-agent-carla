@@ -6,7 +6,7 @@ from .sensors import CollisionSensor, LaneInvasionSensor
 class Vehicle(CarlaActorBase):
     def __init__(self, world, transform=carla.Transform(),
                  on_collision_fn=None, on_invasion_fn=None,
-                 vehicle_type="vehicle.tesla.cybertruck"):
+                 vehicle_type="vehicle.tesla.model3"):
         # Setup vehicle blueprint
         vehicle_bp = world.get_blueprint_library().find(vehicle_type)
         # color = vehicle_bp.get_attribute("color").recommended_values[0]
