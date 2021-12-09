@@ -15,8 +15,8 @@ from .vehicle import Vehicle
 from .camera import Camera
 
 camera_transforms = {
-    "spectator": carla.Transform(carla.Location(x=-5.5, z=2.8), carla.Rotation(pitch=-15)),
-    "dashboard": carla.Transform(carla.Location(x=1.6, z=1.7))
+    "spectator": carla.Transform(carla.Location(x=-10.5, y=2, z=5), carla.Rotation(yaw=-10, pitch=-22)),
+    "dashboard": carla.Transform(carla.Location(x=2.9, z=2.5), carla.Rotation(pitch=-45))
 }
 
 def get_actor_display_name(actor, truncate=250):
@@ -333,16 +333,11 @@ class CarlaEnv(gym.Env):
         self.distance_traveled += self.previous_location.distance(transform.location)
         self.previous_location = transform.location
 
-        if transform.location.z < 0:
-            self.reward = -1000
-            self.terminal_state = True
-
         # Accumulate speed
         self.speed_accum += self.vehicle.get_speed()
         
-        # Call external reward fn
+        # Call reward fn
         self.last_reward = self.reward()
-
 
         self.total_reward += self.last_reward
         self.step_count += 1
@@ -354,16 +349,23 @@ class CarlaEnv(gym.Env):
                 self.close()
                 self.terminal_state = True
 
-        # TODO: terminal state if off the map
+        self.render() # Render
+
         return self.observation, self.last_reward, self.terminal_state, { "closed": self.closed }
 
     def reward(self):
+        r = 1
         #r = 10 if self.vehicle.get_velocity() != 0 else 0
         #r = min(abs(self.vehicle.get_velocity().x + self.vehicle.get_velocity().y)*10, 10)
 
-        #note reward has -100 applied for a lane invasion (see self._on_invasion())
+        #note reward has -1000 applied for a lane invasion (see self._on_invasion())
    
-        r = 1
+        #if car falls off map
+        transform = self.vehicle.get_transform()
+        if transform.location.z < 0:
+            r += -1000
+            self.terminal_state = True
+
         return r
 
     def _get_observation(self):
@@ -390,7 +392,7 @@ class CarlaEnv(gym.Env):
         if self.hud is not None:
             self.hud.notification("Crossed line %s" % " and ".join(text))
 
-        self.last_reward -= 100
+        self.last_reward -= 1000
         self.terminal_state = True
 
     def _set_observation_image(self, image):
