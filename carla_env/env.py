@@ -4,7 +4,9 @@ import time
 import carla
 import gym
 import math
+from math import sqrt
 import pygame
+import argparse
 from pygame.locals import *
 import numpy as np
 from gym.utils import seeding
@@ -13,6 +15,7 @@ from .hud import HUD
 from .world import World
 from .vehicle import Vehicle
 from .camera import Camera
+
 
 camera_transforms = {
     "spectator": carla.Transform(carla.Location(x=-10.5, y=2, z=5), carla.Rotation(yaw=-10, pitch=-22)),
@@ -359,6 +362,14 @@ class CarlaEnv(gym.Env):
         #r = min(abs(self.vehicle.get_velocity().x + self.vehicle.get_velocity().y)*10, 10)
 
         #note reward has -1000 applied for a lane invasion (see self._on_invasion())
+        w = self.world.get_map().get_waypoint(self.vehicle.get_location())
+        right_lane_waypoint = w.get_right_lane()
+        #print("Right lane transform - {}".format(right_lane_waypoint.transform))
+        #print("Current transform - {}".format(self.vehicle.get_transform()))
+        #if (right_lane_waypoint == carla.LaneType.Driving):
+            #print("In the right lane")
+        r += 1 / (1 + self.vehicle.get_location().distance(right_lane_waypoint.transform.location))
+            #print("Distance from right_lane_waypoint == {}".format(dis))
    
         #if car falls off map
         transform = self.vehicle.get_transform()
@@ -395,8 +406,11 @@ class CarlaEnv(gym.Env):
         for lane in lane_types:
             if(str(lane) == 'Broken'): #center lane 
                 self.last_reward -= 100
+                #print("Center lane crossed")
             else:                       #outer lane -- though a NONE lane does appear sometimes in the center, unsure why or how to avoid
+                #print("something else crossed")
                 self.last_reward -= 1000
+                #print("Last Reward = {}".format(self.total_reward))
                 self.terminal_state = True
 
     def _set_observation_image(self, image):
