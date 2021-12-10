@@ -42,7 +42,7 @@ def train_ppo(renderMode=False):
     env = CarlaEnv(obs_res=(160, 160), render=renderMode)
     check_env(env)
     model = PPO("CnnPolicy", env, verbose=1, tensorboard_log="./tensorboard/")
-    model.learn(total_timesteps=int(2e5), tb_log_name="first_run")
+    model.learn(total_timesteps=int(2e6), tb_log_name="first_run")
     # Save the agent
     model.save("carla_test")
 

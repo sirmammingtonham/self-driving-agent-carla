@@ -207,6 +207,7 @@ class CarlaEnv(gym.Env):
 
         # Metrics
         self.total_reward = 0.0
+        self.last_reward = 0.0
         self.previous_location = self.vehicle.get_transform().location
         self.distance_traveled = 0.0
         self.center_lane_deviation = 0.0
@@ -263,6 +264,8 @@ class CarlaEnv(gym.Env):
             return self.observation
 
     def step(self, action):
+        self.last_reward = 0.0
+
         if self.closed:
             raise Exception("CarlaEnv.step() called after the environment was closed." +
                             "Check for info[\"closed\"] == True in the learning loop.")
@@ -340,7 +343,7 @@ class CarlaEnv(gym.Env):
         self.speed_accum += self.vehicle.get_speed()
         
         # Call reward fn
-        self.last_reward = self.reward()
+        self.last_reward += self.reward()
 
         self.total_reward += self.last_reward
         self.step_count += 1
@@ -357,24 +360,25 @@ class CarlaEnv(gym.Env):
         return self.observation, self.last_reward, self.terminal_state, { "closed": self.closed }
 
     def reward(self):
-        r = 1
+        r = .05
         #r = 10 if self.vehicle.get_velocity() != 0 else 0
         #r = min(abs(self.vehicle.get_velocity().x + self.vehicle.get_velocity().y)*10, 10)
 
-        #note reward has -1000 applied for a lane invasion (see self._on_invasion())
+        #note reward has -100 applied for a lane invasion (see self._on_invasion())
         w = self.world.get_map().get_waypoint(self.vehicle.get_location())
         right_lane_waypoint = w.get_right_lane()
         #print("Right lane transform - {}".format(right_lane_waypoint.transform))
         #print("Current transform - {}".format(self.vehicle.get_transform()))
         #if (right_lane_waypoint == carla.LaneType.Driving):
             #print("In the right lane")
-        r += 1 / (1 + self.vehicle.get_location().distance(right_lane_waypoint.transform.location))
+        if(right_lane_waypoint is not None):
+            r += 1/(1+(self.vehicle.get_location().distance(right_lane_waypoint.transform.location)))
             #print("Distance from right_lane_waypoint == {}".format(dis))
    
         #if car falls off map
         transform = self.vehicle.get_transform()
         if transform.location.z < 0:
-            r += -1000
+            r += -100
             self.terminal_state = True
 
         return r
@@ -405,11 +409,11 @@ class CarlaEnv(gym.Env):
         
         for lane in lane_types:
             if(str(lane) == 'Broken'): #center lane 
-                self.last_reward -= 100
+                self.last_reward -= 10
                 #print("Center lane crossed")
             else:                       #outer lane -- though a NONE lane does appear sometimes in the center, unsure why or how to avoid
                 #print("something else crossed")
-                self.last_reward -= 1000
+                self.last_reward -= 100
                 #print("Last Reward = {}".format(self.total_reward))
                 self.terminal_state = True
 
