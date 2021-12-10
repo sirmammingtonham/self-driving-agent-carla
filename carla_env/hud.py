@@ -63,7 +63,7 @@ class HUD(object):
                 heading += "W" if -0.5 > t.rotation.yaw > -179.5 else ""
                 
                 self.info_text.extend([
-                    "Vehicle: % 20s" % 'sussy baka',
+                    "Vehicle: % 20s" % 'ProjML&AI',
                     "",
                     "Speed:   % 15.0f km/h" % (3.6 * math.sqrt(v.x**2 + v.y**2 + v.z**2)),
                     u"Heading:% 16.0f\N{DEGREE SIGN} % 2s" % (t.rotation.yaw, heading),
